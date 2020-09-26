@@ -76,8 +76,30 @@ The next function is `getInputLocationAtBlockStart()` which tracks values throug
 0. function getInputLocationAtBlockStart()
 1.     for each compound backwards:
 2.         if first compound of first block: skip
-3.         if first compound of latter block:
-4.             checkIfCallIsOriginFunction();
+3.         if first compound of latter block and jump:
+4.             checkForOriginFunction();
 5.         else:
-6.             
+6.             checkForInterestingObjects();
+7.         if storage is constant:
+8.             return;
+9.     return;
 ```
+
+The `getInputLocationAtBlockStart()` function now calls two different functions depending on the location inside a block. If we encounter the last instruction of a block which will be the first in the loop, we usually encounter a jump. However, sometimes a block might end on a definition which we need to consider. The function called in the first and common case, is `checkForOriginFunction()` which checks for calls which might be the origin of our tracked input. In case a block ends on a definition or we encounter any of the other instructions, we check for interesting objects in the compound with `checkForInterestingObjects()`.
+
+Let us first take a look at `checkForOriginFunction()`.
+```
+0. function checkForOriginFunction()
+1.     if call:
+2.         if check for character function and before 4th block:  // e.g. strchr, regexp etc.
+3.             add input parameter and function to storage;
+4.         if input function and before 5th block: // e.g. scanf
+5.             add input parameter and function to storage;
+6.         if vulnerable function and before 3rd block: // e.g. sprintf, strcat etc.
+7.             add input parameter and function to storage;
+8.         if library function without input and return register tracked:
+9.             add function to storage;
+10.    return;
+```
+
+We do different things in this function depending on the encountered function. If we observe a "check for character" function like strchr or regexp, we continue tracking their input values as well as they are most likely the origin. If we encounter vulnerable functions, such as sprintf or strcat, it is most likely that our tracked value is from their output. We also check for user input, such as scanf, and library function with no input in case we track the return register. 
