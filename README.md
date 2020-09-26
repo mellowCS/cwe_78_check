@@ -39,42 +39,45 @@ I have put the `lib` directory into the `.gitignore` since the `ghidra.jar` cont
 The check will first build two constructs which we will need to follow values through Ghidra's Pcode.
 
 
-1. A map from system functions (e.g. system, execl) to the addresses where they are called
+1. A map from system functions (e.g. system, execl) to the addresses at which they are called
 2. A basic block graph where each block will contain two collections of addresses of source and destination blocks as well as their contents
 
 ## Part 2
 
-Here I will explain the basic functionality using Pseudo Code. First we are going to look at the main function which iterates over all system functions and addresses where they are called using the map we built in `Part 1`. For each of those locations we build a block trace to the start of the program using the block graph and put the tracked values into the created storage.
+Here I will explain the basic functionality using Pseudo Code. First we are going to look at the `findSourceOfSystemCallInput()` function which iterates over all system functions and addresses at which they are called using the map we built in `Part 1`. For each of those locations we build a block trace to the start of the program using the block graph and put the tracked values into the created storage.
 
 ```
-0. FUNCTION findSourceOfSystemCallInput()
-1.     FOR function in SystemMap DO:
+0. function findSourceOfSystemCallInput()
+1.     for function in SystemMap:
 2.         get function's parameters;
-3.         FOR address in called locations DO:
-4.             create storage to track values;  // registers and memory positions
+3.         for address in called locations:
+4.             create storage to track values;                 // registers and memory positions
 5.             get block where function is called by address;
 6.             buildTraceToProgramStart();
 7.             add result to output;
-8.         END FOR;
-9.     END FOR;
-10.    RETURN output;
+8.     return output;
 ```
 
-Now we are going to take a closer look at the `buildTraceToProgramStart()` function:
+Now we are going to take a closer look at the `buildTraceToProgramStart()` function. This function is recursive and calls itself for each source block of the currently analysed block. For each block it also calls `getInputLocationAtBlockStart()` which tracks value from each OUT edge to each IN edge of the block. Further, in each call the storage is checked for constant values. If it only has constant values, the trace is stopped and the result is returned as we do not have to do anymore tracking. Also if there is no source block left, we reached the program start and are done.
 ```
-0. FUNCTION buildTraceToProgramStart()
-1.     noSource = TRUE;
+0. function buildTraceToProgramStart()
 2.     getInputLocationAtBlockStart();
-3.     IF storage is not constant DO:  // constant storage means only constant values
-4.         FOR source in current block's sources DO:
-5.             IF source block exists DO:
-6.                 noSource = FALSE;
+3.     if storage is not constant:                  // constant storage means only constant values
+4.         for source in current block's sources:
+5.             if source block exists:
 7.                 buildTraceToProgramStart();
-8.             END IF;
-9.         END FOR;
-10.        IF noSource is TRUE DO:
-11.            return;
-12.        END IF;
-13.    END IF;
-14.    return;
+8.         if there is no source block left:
+9.             return;
+10.    return;
+```
+
+The next function is `getInputLocationAtBlockStart()` which tracks values through one block. It takes compounds of Pcode instructions where each compound belongs to exactly one assembly instruction. It iterates backwards through these compounds and checks whether it contains in - or output objects that match the tracked objects. (e.g. if the register RAX is overwritten by some value, we have RAX as output object which we can match against the storage.). Due to these checks we can avoid analysing each individual Pcode instruction and just skip the compound if there are no interesting objects. We also skip the very first compound as the input parameter will only be altered before that.
+```
+0. function getInputLocationAtBlockStart()
+1.     for each compound backwards:
+2.         if first compound of first block: skip
+3.         if first compound of latter block:
+4.             checkIfCallIsOriginFunction();
+5.         else:
+6.             
 ```

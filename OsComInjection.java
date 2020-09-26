@@ -241,36 +241,47 @@ public class OsComInjection extends GhidraScript {
 		ArrayList<InstructionCompound> groups = block.getOps();
 		//PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
 		for(int i = groups.size(); i-- > 0;) {
-			
-			if(i == groups.size()-1 && depthLevel == 0) {
-				continue;
-			}
-			
-			if(i == groups.size()-1 && depthLevel > 0) {
+			InstructionCompound group = groups.get(i);
+			int numOfInstr = group.getGroup().size();
+            // Check if current assembly instruction is a NOP
+			if(numOfInstr > 0) {
+				if(i == groups.size()-1 && depthLevel == 0) {
+					continue;
+				}
 				
-				checkIfCallisOriginFunction(groups.get(i), storage, block, depthLevel);
-				
-			} else {
-				
-				ArrayList<Varnode> output = HelperFunctions.matchTrackedNodesWithOutput(storage, groups.get(i).getResultObjects(), context);
-				ArrayList<MemPos> input = HelperFunctions.matchTrackedMemPosWithOutput(stackPointer, storage, groups.get(i).getInputObjects(), context);
-				
-				if(!output.isEmpty() || !input.isEmpty()) {
-					if(groups.get(i).getResultObjects().isEmpty()) {
-						analysePcodeCompound(storage, groups.get(i), block, output, input, true);
+				if(i == groups.size()-1 && depthLevel > 0) {
+					// Checks if the last Pcode instruction of a block is actually a jump
+					PcodeOp branch = group.getGroup().get(numOfInstr - 1).getOp();
+					if(Build.jmps.contains(branch.getMnemonic())) {
+						checkForOriginFunction(group, storage, block, depthLevel, branch);
 					} else {
-						analysePcodeCompound(storage, groups.get(i), block, output, input, false);
+						checkForInterestingObjects(storage, group, block);
 					}
+				} else {
+					checkForInterestingObjects(storage, group, block);
+				}
+				
+				//PrintTracing.printTrace(storage, context, depthLevel, groups, i);
+				
+				if(HelperFunctions.trackerIsConstant(storage)) {
+					return;
 				}
 			}
 			
-     
-			//PrintTracing.printTrace(storage, context, depthLevel, groups, i);
-			
-			if(HelperFunctions.trackerIsConstant(storage)) {
-				return;
+		}
+	}
+
+
+	protected void checkForInterestingObjects(TrackStorage storage, InstructionCompound group, Block block) {
+		ArrayList<Varnode> output = HelperFunctions.matchTrackedNodesWithOutput(storage, group.getResultObjects(), context);
+		ArrayList<MemPos> input = HelperFunctions.matchTrackedMemPosWithOutput(stackPointer, storage, group.getInputObjects(), context);
+				
+		if(!output.isEmpty() || !input.isEmpty()) {
+			if(group.getResultObjects().isEmpty()) {
+				analysePcodeCompound(storage, group, block, output, input, true);
+			} else {
+				analysePcodeCompound(storage, group, block, output, input, false);
 			}
-			
 		}
 	}
 	
@@ -312,13 +323,7 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
-	protected void checkIfCallisOriginFunction(InstructionCompound compound, TrackStorage storage, Block block, int depthLevel) {
-		ArrayList<SimpleInstruction> instructions = compound.getGroup();
-		int numOfInstr = instructions.size();
-		if(numOfInstr == 0) {
-			return;
-		}
-		PcodeOp branch = instructions.get(numOfInstr-1).getOp();
+	protected void checkForOriginFunction(InstructionCompound compound, TrackStorage storage, Block block, int depthLevel, PcodeOp branch) {
 		Varnode remove = null;
 		if(PcodeOp.CALL == branch.getOpcode()) {
 			Function calledFunc = funcMan.getFunctionAt(branch.getInput(0).getAddress());
