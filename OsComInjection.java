@@ -140,7 +140,9 @@ public class OsComInjection extends GhidraScript {
 			 * 2. Iterate over each address where the function is called
 			 * -------------------------------------------------------------------------------------------------------
 			 * */
-			// int i = 0;
+			ArrayList<Varnode> params = HelperFunctions.getFunctionParameters(sysFunc, context);
+			ArrayList<MemPos> stackArgs = HelperFunctions.getStackArgs(stackPointer, addrFactory, params, context);
+			params = HelperFunctions.removeStackNodes(params);
 			for(Address callAddr : Build.callerSysMap.get(sysFunc)) {
 				//if(i == 0) {i++; continue;}
 				/*
@@ -151,12 +153,10 @@ public class OsComInjection extends GhidraScript {
 				 * 4. Trace its sources recursively and merge outgoing track storages
 				 * -------------------------------------------------------------------------------------------------------
 				 * */
-				ArrayList<Varnode> params = HelperFunctions.getFunctionParameters(sysFunc, context);
-				ArrayList<MemPos> stackArgs = HelperFunctions.getStackArgs(stackPointer, addrFactory, params, context);
-				params = HelperFunctions.removeStackNodes(params);
 				TrackStorage storage = new TrackStorage(sysFunc, callAddr, params, stackArgs, new ArrayList<String>(), new ArrayList<String>());
 				Block startBlock = blockGraph.getBlockByAddress(callAddr);
-				buildTraceToProgramStart(storage, 0, blockGraph, startBlock, false);
+				buildTraceToProgramStart(storage, 0, blockGraph, startBlock);
+				mergable.add(storage);
 				output.add(mergeTrackerForSystemCall());
 			}
 		}
@@ -170,7 +170,7 @@ public class OsComInjection extends GhidraScript {
 	 * Recursively iterate through source blocks and get the corresponding TrackStorage
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
-	public void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block, Boolean isConst) {
+	public void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block) {
 		/*
 		 * -------------------------------------------------------------------------------------------------------
 		 * 1. Iterate over all source blocks of the current block
@@ -185,15 +185,15 @@ public class OsComInjection extends GhidraScript {
 				Block srcBlock = graph.getBlockByAddress(src);
 				if(srcBlock != null && depthLevel < 15) {
 					noSrc = false;
-					buildTraceToProgramStart(storage, depthLevel+1, graph, srcBlock, isConst);
+					buildTraceToProgramStart(storage, depthLevel+1, graph, srcBlock);
 				}
 			}
-		} else {
-			noSrc = true;
-		}
-		if(noSrc) {
-			mergable.add(storage);
-		}
+			if(noSrc) {
+				return;
+			}
+		} 
+
+		return;
 	}
 	
 	
