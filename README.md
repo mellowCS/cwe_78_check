@@ -47,7 +47,7 @@ The check will first build two constructs which we will need to follow values th
 Here I will explain the basic functionality using Pseudo Code. First we are going to look at the `findSourceOfSystemCallInput()` function which iterates over all system functions and addresses at which they are called using the map we built in `Part 1`. For each of those locations we build a block trace to the start of the program using the block graph and put the tracked values into the created storage.
 
 ```
-0. function findSourceOfSystemCallInput()
+0. function findSourceOfSystemCallInput():
 1.     for function in SystemMap:
 2.         get function's parameters;
 3.         for address in called locations:
@@ -60,20 +60,18 @@ Here I will explain the basic functionality using Pseudo Code. First we are goin
 
 Now we are going to take a closer look at the `buildTraceToProgramStart()` function. This function is recursive and calls itself for each source block of the currently analysed block. For each block it also calls `getInputLocationAtBlockStart()` which tracks value from each OUT edge to each IN edge of the block. Further, in each call the storage is checked for constant values. If it only has constant values, the trace is stopped and the result is returned as we do not have to do anymore tracking. Also if there is no source block left, we reached the program start and are done.
 ```
-0. function buildTraceToProgramStart()
+0. function buildTraceToProgramStart():
 2.     getInputLocationAtBlockStart();
 3.     if storage is not constant:                  // constant storage means only constant values
 4.         for source in current block's sources:
 5.             if source block exists:
-7.                 buildTraceToProgramStart();
-8.         if there is no source block left:
-9.             return;
-10.    return;
+6.                 buildTraceToProgramStart();
+7.     return;
 ```
 
 The next function is `getInputLocationAtBlockStart()` which tracks values through one block. It takes compounds of Pcode instructions where each compound belongs to exactly one assembly instruction. It iterates backwards through these compounds and checks whether it contains in - or output objects that match the tracked objects. (e.g. if the register RAX is overwritten by some value, we have RAX as output object which we can match against the storage.). Due to these checks we can avoid analysing each individual Pcode instruction and just skip the compound if there are no interesting objects. We also skip the very first compound as the input parameter will only be altered before that.
 ```
-0. function getInputLocationAtBlockStart()
+0. function getInputLocationAtBlockStart():
 1.     for each compound backwards:
 2.         if first compound of first block: skip
 3.         if first compound of latter block and jump:
@@ -89,7 +87,7 @@ The `getInputLocationAtBlockStart()` function now calls two different functions 
 
 Let us first take a look at `checkForOriginFunction()`.
 ```
-0. function checkForOriginFunction()
+0. function checkForOriginFunction():
 1.     if call:
 2.         if check for character function and before 4th block:  // e.g. strchr, regexp etc.
 3.             add input parameter and function to storage;
@@ -103,3 +101,12 @@ Let us first take a look at `checkForOriginFunction()`.
 ```
 
 We do different things in this function depending on the encountered function. If we observe a "check for character" function like strchr or regexp, we continue tracking their input values as well as they are most likely the origin. If we encounter vulnerable functions, such as sprintf or strcat, it is most likely that our tracked value is from their output. We also check for user input, such as scanf, and library function with no input in case we track the return register. 
+
+Lastly we look at `checkForInterestingObjects()` which matches in - and output objects against the tracked objects and calls `analysePcodeCompound()` in case we have a match.
+```
+0. function checkForInterestingObjects():
+1.     match output and input objects against storage
+2.     if match:
+3.         analysePcodeCompound()
+4.     return;
+```

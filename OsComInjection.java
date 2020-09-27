@@ -134,25 +134,11 @@ public class OsComInjection extends GhidraScript {
 	public ArrayList<TrackStorage> findSourceOfSystemCallInput(BlockGraph blockGraph) {
 		ArrayList<TrackStorage> output = new ArrayList<TrackStorage>();
 		for(Function sysFunc : Build.callerSysMap.keySet()) {
-			/*
-			 * -------------------------------------------------------------------------------------------------------
-			 * 1. Get the function's parameters and map them to Varnodes, also get stack parameters if available and remove stack varnodes from parameters
-			 * 2. Iterate over each address where the function is called
-			 * -------------------------------------------------------------------------------------------------------
-			 * */
 			ArrayList<Varnode> params = HelperFunctions.getFunctionParameters(sysFunc, context);
 			ArrayList<MemPos> stackArgs = HelperFunctions.getStackArgs(stackPointer, addrFactory, params, context);
+			// params contains stack arguments as Stack Varnodes which are removed in favour of using stackpointer + offset notation
 			params = HelperFunctions.removeStackNodes(params);
 			for(Address callAddr : Build.callerSysMap.get(sysFunc)) {
-				//if(i == 0) {i++; continue;}
-				/*
-				 * -------------------------------------------------------------------------------------------------------
-				 * 1. Create a TrackStorage for each system call
-				 * 2. Get the first block where the system call was made
-				 * 3. Track the output of the of the first block
-				 * 4. Trace its sources recursively and merge outgoing track storages
-				 * -------------------------------------------------------------------------------------------------------
-				 * */
 				TrackStorage storage = new TrackStorage(sysFunc, callAddr, params, stackArgs, new ArrayList<String>(), new ArrayList<String>());
 				Block startBlock = blockGraph.getBlockByAddress(callAddr);
 				buildTraceToProgramStart(storage, 0, blockGraph, startBlock);
@@ -171,29 +157,15 @@ public class OsComInjection extends GhidraScript {
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
 	public void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block) {
-		/*
-		 * -------------------------------------------------------------------------------------------------------
-		 * 1. Iterate over all source blocks of the current block
-		 * 2. For each source block, get the TrackStorage output
-		 * 3. Recursively call getTrace for each source block and use their TracksStorages as input
-		 * -------------------------------------------------------------------------------------------------------
-		 * */
-		Boolean noSrc = true;
 		getInputLocationAtBlockStart(storage, block, depthLevel);
 		if(!HelperFunctions.trackerIsConstant(storage)) {
 			for(Address src : block.getSources()) {
 				Block srcBlock = graph.getBlockByAddress(src);
 				if(srcBlock != null && depthLevel < 15) {
-					noSrc = false;
 					buildTraceToProgramStart(storage, depthLevel+1, graph, srcBlock);
 				}
 			}
-			if(noSrc) {
-				return;
-			}
-		} 
-
-		return;
+		}
 	}
 	
 	
@@ -230,16 +202,8 @@ public class OsComInjection extends GhidraScript {
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
 	protected void getInputLocationAtBlockStart(TrackStorage storage, Block block, int depthLevel) {
-		/*
-		 * -------------------------------------------------------------------------------------------------------
-		 * 1. Iterate over all instruction compounds of the block
-		 * 2. For each instruction compound, check whether we have a register output or store something in memory
-		 * 3. OUTPUT: If there is a register output, check whether it is one of the tracked registers
-		 * 4. NO OUTPUT: If there is none, check whether the memory location is one of the locations that are tracked
-		 * -------------------------------------------------------------------------------------------------------
-		 * */
 		ArrayList<InstructionCompound> groups = block.getOps();
-		//PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
+		PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
 		for(int i = groups.size(); i-- > 0;) {
 			InstructionCompound group = groups.get(i);
 			int numOfInstr = group.getGroup().size();
@@ -261,10 +225,10 @@ public class OsComInjection extends GhidraScript {
 					checkForInterestingObjects(storage, group, block);
 				}
 				
-				//PrintTracing.printTrace(storage, context, depthLevel, groups, i);
+				PrintTracing.printTrace(storage, context, depthLevel, groups, i);
 				
 				if(HelperFunctions.trackerIsConstant(storage)) {
-					return;
+					break;
 				}
 			}
 			
@@ -273,14 +237,14 @@ public class OsComInjection extends GhidraScript {
 
 
 	protected void checkForInterestingObjects(TrackStorage storage, InstructionCompound group, Block block) {
-		ArrayList<Varnode> output = HelperFunctions.matchTrackedNodesWithOutput(storage, group.getResultObjects(), context);
-		ArrayList<MemPos> input = HelperFunctions.matchTrackedMemPosWithOutput(stackPointer, storage, group.getInputObjects(), context);
+		ArrayList<Varnode> matchedOutput = HelperFunctions.matchTrackedNodesWithOutput(storage, group.getResultObjects(), context);
+		ArrayList<MemPos> matchedInput = HelperFunctions.matchTrackedMemPosWithInput(stackPointer, storage, group.getInputObjects(), context);
 				
-		if(!output.isEmpty() || !input.isEmpty()) {
+		if(!matchedOutput.isEmpty() || !matchedInput.isEmpty()) {
 			if(group.getResultObjects().isEmpty()) {
-				analysePcodeCompound(storage, group, block, output, input, true);
+				analysePcodeCompound(storage, group, block, matchedOutput, matchedInput, true);
 			} else {
-				analysePcodeCompound(storage, group, block, output, input, false);
+				analysePcodeCompound(storage, group, block, matchedOutput, matchedInput, false);
 			}
 		}
 	}
@@ -288,30 +252,16 @@ public class OsComInjection extends GhidraScript {
 	
 	protected void analysePcodeCompound(TrackStorage storage, InstructionCompound group, Block block, ArrayList<Varnode> output, ArrayList<MemPos> input, Boolean noOutput) {
 		ArrayList<SimpleInstruction> ops = group.getGroup();
+		// If we track the stackpointer and have a PUSH or POP instruction update the tracked Stack Variables
 		if(stackOps.contains(group.getInstruction().getMnemonicString())) {
 			ArrayList<String> reg = storage.getMemPos().stream().map(m -> context.getRegister(m.getRegister()).getName()).collect(Collectors.toCollection(ArrayList::new));
 			if(reg.contains(stackPointer.getName())) {
 				updateStackVariables(storage, group);
 			}
-		} else if(noOutput) {
-			Varnode newTracked = null;
-			HelperFunctions.removeTrackedMemoryPositions(storage, input);
-			for(SimpleInstruction op : ops) {
-				if(op.getOp().getOpcode() == PcodeOp.STORE && !HelperFunctions.getStoreInput(op.getOp()).isUnique()) {
-					newTracked = HelperFunctions.getStoreInput(op.getOp());
-					storage.addNode(newTracked);
-				}
-			}
-			if(newTracked == null) {
-				for(SimpleInstruction op : ops) {
-					if(op.getOp().getOpcode() == PcodeOp.COPY) {
-						newTracked = op.getOp().getInput(0);
-						if(HelperFunctions.notATrackedNode(storage, newTracked)) {
-							storage.addNode(newTracked);
-						}
-					}
-				}
-			}
+		}
+		// If we have no output objects, we have a STORE instruction. 
+		if(noOutput) {
+			getStoredInput(storage, input, ops);
 			
 		} else {
 			StackFrame frame = funcMan.getFunctionContaining(group.getInstruction().getAddress()).getStackFrame();
@@ -321,15 +271,37 @@ public class OsComInjection extends GhidraScript {
 			
 		}
 	}
+
+
+	protected void getStoredInput(TrackStorage storage, ArrayList<MemPos> input, ArrayList<SimpleInstruction> ops) {
+		ArrayList<Varnode> copied = new ArrayList<Varnode>();
+		HelperFunctions.removeTrackedMemoryPositions(storage, input);
+		Boolean inputSet = false;
+		for(SimpleInstruction op : ops) {
+			if(op.getOp().getOpcode() == PcodeOp.COPY && !op.getOp().getInput(0).isUnique()) {
+				copied.add(op.getOp().getInput(0));
+			}
+			if(op.getOp().getOpcode() == PcodeOp.STORE && !HelperFunctions.checkIfStoreInputisVirtual(op.getOp())) {
+				inputSet = true;
+				storage.addNode(HelperFunctions.parseStoreInput(op.getOp()));
+			}
+		}
+
+		if(!inputSet) {
+			for(Varnode cpy : copied) {
+				storage.addNode(cpy);
+			}
+		}
+
+	}
 	
 	
 	protected void checkForOriginFunction(InstructionCompound compound, TrackStorage storage, Block block, int depthLevel, PcodeOp branch) {
-		Varnode remove = null;
 		if(PcodeOp.CALL == branch.getOpcode()) {
 			Function calledFunc = funcMan.getFunctionAt(branch.getInput(0).getAddress());
 			if(checkCharFunctions.contains(calledFunc.getName()) && depthLevel < 4) {
 				Varnode first = context.getRegisterVarnode(parameterRegister.get(0));
-				if(HelperFunctions.notATrackedNode(storage, first)) {
+				if(storage.notATrackedNode(first)) {
 					storage.addNode(first);
 				}
 				storage.addCalledFunc(calledFunc.getName());
@@ -343,14 +315,10 @@ public class OsComInjection extends GhidraScript {
 			} else if(calledFunc.isThunk() && calledFunc.getParameterCount() == 0 && !calledFunc.hasNoReturn()) {
 				for(Varnode node : storage.getNodes()) {
 					if(node.isRegister() && returnRegister.getName().equals(context.getRegister(node).getName())) {
-						remove = node;
 						storage.addOriginFunc(calledFunc.getName());
 					}
 				}
 				
-			}
-			if(remove != null) {
-				storage.getNodes().remove(remove);
 			}
 		}
 	}
@@ -361,10 +329,10 @@ public class OsComInjection extends GhidraScript {
 		if(!cpuArch.equals("x86_32")) {
 			Varnode first = context.getRegisterVarnode(parameterRegister.get(0));
 			Varnode second = context.getRegisterVarnode(parameterRegister.get(1));
-			if(HelperFunctions.notATrackedNode(storage, first)) {
+			if(storage.notATrackedNode(first)) {
 				storage.addNode(first);
 			}
-			if(HelperFunctions.notATrackedNode(storage, second)) {
+			if(storage.notATrackedNode(second)) {
 				storage.addNode(second);
 			}
 		}
@@ -379,7 +347,7 @@ public class OsComInjection extends GhidraScript {
 			Varnode var = vars[idx].getFirstStorageVarnode();
 			if(var.isFree() && !var.isRegister()) {
 				MemPos pos = new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress(var.getAddress().getOffset()), var.getSize()));
-				if(HelperFunctions.notATrackedMemoryPosition(storage, pos.getRegister(), pos.getOffset(), context)) {
+				if(storage.notATrackedMemoryPosition(pos.getRegister(), pos.getOffset(), context)) {
 					storage.addMem(pos);
 				}
 			} else {
@@ -407,12 +375,12 @@ public class OsComInjection extends GhidraScript {
 		PcodeOp firstInstr = group.getGroup().get(0).getOp();
 		if(PcodeOp.COPY == firstInstr.getOpcode()) {
 			Varnode in = firstInstr.getInput(0);
-			if(HelperFunctions.notATrackedNode(storage, in)) {
+			if(storage.notATrackedNode(in)) {
 				storage.addNode(in);
 			}
 		} else if(PcodeOp.INT_ADD == firstInstr.getOpcode()) {
 			MemPos newPos = new MemPos(firstInstr.getInput(0), firstInstr.getInput(1));
-			if(HelperFunctions.notATrackedMemoryPosition(storage, newPos.getRegister(), newPos.getOffset(), context)) {
+			if(storage.notATrackedMemoryPosition(newPos.getRegister(), newPos.getOffset(), context)) {
 				storage.addMem(newPos);
 			}
 		}
@@ -428,44 +396,49 @@ public class OsComInjection extends GhidraScript {
 		ArrayList<Varnode> trackedNodes = storage.getNodes();
 		
 		if(trackedNodes.contains(output)) {
-			
 			if(binOps.contains(op.getMnemonic())) {
-				
-				updateNodeAndMemoryTracker(storage, op, varOffsets, output);
-				
-			} else if (casts.contains(op.getMnemonic())) {
-				
-				trackedNodes.remove(output);
-				
-			} else if(op.getOpcode() == PcodeOp.COPY) {
-				
+				updateNodeAndMemoryTracker(storage, op, varOffsets, output);	
+			}
+			if (casts.contains(op.getMnemonic())) {
+				return;
+			}
+			if(op.getOpcode() == PcodeOp.COPY) {
 				trackedNodes.remove(output);
 				storage.addNode(op.getInput(0));
-				
-			} else if (op.getOpcode() == PcodeOp.LOAD) {
-				
+			}
+			if (op.getOpcode() == PcodeOp.LOAD) {
 				trackedNodes.remove(output);
 				if(op.getNumInputs() == 2) {
 					storage.addNode(op.getInput(1));
 				} else {
 					storage.addNode(op.getInput(0));
 				}
-				
 			}
 		}
 	}
 	
 	
-	protected void updateNodeAndMemoryTracker(TrackStorage storage, PcodeOp op, ArrayList<Long> varOffsets, Varnode output) {
+	protected void updateNodeAndMemoryTracker(TrackStorage storage, PcodeOp op, ArrayList<Long> varOffsets, Varnode matchedOutput) {
 		if(PcodeOp.INT_ADD == op.getOpcode() || PcodeOp.INT_SUB == op.getOpcode()) {
-			if(op.getInput(0).isRegister() && op.getInput(1).isConstant() && op.getInput(0).isRegister() && !op.getInput(0).toString().equals(output.toString())) {
-				storage.getNodes().remove(output);
-				if(HelperFunctions.notATrackedMemoryPosition(storage, op.getInput(0), op.getInput(1), context)) {
-					storage.getMemPos().add(new MemPos(op.getInput(0), op.getInput(1)));
+			Varnode destination = op.getInput(0);
+			Varnode source = op.getInput(1);
+			if(destination.isRegister()) {
+				if(source.isConstant()) {
+					handleConstantSource(storage, destination, source, matchedOutput);
+				} else {
+					storage.removeNode(matchedOutput);
+					storage.addNode(source);
 				}
-			} else if(op.getInput(0).isRegister() && op.getInput(1).isRegister()) {
-				storage.getNodes().remove(output);
-				storage.getNodes().add(op.getInput(1));
+			}
+		}
+	}
+
+
+	protected void handleConstantSource(TrackStorage storage, Varnode destination, Varnode source, Varnode matchedOutput) {
+		if(!destination.toString().equals(matchedOutput.toString())) {
+			storage.removeNode(matchedOutput);
+			if(storage.notATrackedMemoryPosition(destination, source, context)) {
+				storage.addMem(new MemPos(destination, source));
 			}
 		}
 	}
