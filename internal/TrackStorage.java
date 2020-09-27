@@ -17,13 +17,13 @@ public class TrackStorage {
 	
 	public TrackStorage() {}
 	
-	public TrackStorage(Function func, Address call, ArrayList<Varnode> registers, ArrayList<MemPos> memPos, ArrayList<String> calledFuncs, ArrayList<String> originFuncs) {
+	public TrackStorage(Function func, Address call, ArrayList<Varnode> nodes, ArrayList<MemPos> memPos) {
 		this.setFunc(func);
 		this.setCall(call);
-		this.setNodes(registers);
+		this.setNodes(nodes);
 		this.setMemPos(memPos);
-		this.setCalledFuncs(calledFuncs);
-		this.setOriginFuncs(originFuncs);
+		this.setCalledFuncs(new ArrayList<String>());
+		this.setOriginFuncs(new ArrayList<String>());
 	}
 	
 	public ArrayList<Varnode> getNodes() {

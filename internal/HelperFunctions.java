@@ -2,6 +2,7 @@ package internal;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.data.DataUtilities;
@@ -73,6 +74,7 @@ public class HelperFunctions {
 	public static String getCPUArch(Program program) {
 		String langId = program.getCompilerSpec().getLanguage().getLanguageID().getIdAsString();
 		String[] arch = langId.split(":");
+		System.out.println(arch[0] + "-" + arch[2]);
 		return arch[0] + "-" + arch[2];
 	}
 	
@@ -262,5 +264,54 @@ public class HelperFunctions {
 			}
 		}
 		return null;
+	}
+
+
+	public static void getFunctionParams(TrackStorage storage, Function calledFunc, VarnodeContext context, ArrayList<Register> parameterRegister, String cpuArch, AddressFactory addrFactory, Register stackPointer, int arg_count) {
+		storage.addCalledFunc(calledFunc.getName());
+		if(!cpuArch.equals("x86-32")) {
+			for(int c = 0; c < arg_count; c++) {
+				Varnode arg = context.getRegisterVarnode(parameterRegister.get(c));
+				if(storage.notATrackedNode(arg)) {
+					storage.addNode(arg);
+				}
+			}
+		} else {
+			for(int c = 0; c < arg_count; c++) {
+				storage.addMem(new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress((c + 1) * 4), 4)));
+			}
+		}
+	}
+	
+	
+	public static void getVulnFunctionParams(TrackStorage storage, Function calledFunc, VarnodeContext context, ArrayList<Register> parameterRegister, HashMap<String, Integer> vulnFunctions, String cpuArch, AddressFactory addrFactory, Register stackPointer) {
+		storage.addCalledFunc(calledFunc.getName());
+		if(!cpuArch.equals("x86-32")) {
+			Varnode arg = context.getRegisterVarnode(parameterRegister.get(vulnFunctions.get(calledFunc.getName())));
+			if(storage.notATrackedNode(arg)) {
+				storage.addNode(arg);
+			}
+		} else {
+			storage.addMem(new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress(4), 4)));
+			storage.addMem(new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress(8), 4)));
+		}
+	}
+	
+	
+	public static void updateStackVariables(TrackStorage storage, InstructionCompound group, VarnodeContext context, Register stackPointer) {
+		PcodeOp firstInstr = group.getGroup().get(0).getOp();
+		if(PcodeOp.COPY == firstInstr.getOpcode()) {
+			Varnode in = firstInstr.getInput(0);
+			if(storage.notATrackedNode(in)) {
+				storage.addNode(in);
+			}
+		} else if(PcodeOp.INT_ADD == firstInstr.getOpcode()) {
+			MemPos newPos = new MemPos(firstInstr.getInput(0), firstInstr.getInput(1));
+			if(storage.notATrackedMemoryPosition(newPos.getRegister(), newPos.getOffset(), context)) {
+				storage.addMem(newPos);
+			}
+		}
+		
+		removeStackPointer(stackPointer, storage, context);
 	}
 }

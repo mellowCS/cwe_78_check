@@ -20,7 +20,6 @@ import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.StackFrame;
-import ghidra.program.model.listing.Variable;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.SymbolTable;
@@ -30,15 +29,16 @@ import internal.*;
 
 public class OsComInjection extends GhidraScript {
 	
-	private HashMap<String, Integer[]> vulnFunctions = new HashMap<String, Integer[]> () {{
-		put("strcat", new Integer[] {0, 1});
-		put("strncat", new Integer[] {0, 1});
-		put("sprintf", new Integer[] {1});
-		put("snprintf", new Integer[] {2});
+	private HashMap<String, Integer> vulnFunctions = new HashMap<String, Integer> () {{
+		put("strcat", 1);
+		put("strncat", 1);
+		put("sprintf", 2);
+		put("snprintf", 3);
 	}};
 	
 	
 	private List<String> inputFunctions = new ArrayList<String> () {{
+		add("scanf");
 		add("__isoc99_scanf");
 	}};
 	
@@ -131,18 +131,17 @@ public class OsComInjection extends GhidraScript {
 	 * Gets the input source for each system call
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
-	public ArrayList<TrackStorage> findSourceOfSystemCallInput(BlockGraph blockGraph) {
+	protected ArrayList<TrackStorage> findSourceOfSystemCallInput(BlockGraph blockGraph) {
 		ArrayList<TrackStorage> output = new ArrayList<TrackStorage>();
 		for(Function sysFunc : Build.callerSysMap.keySet()) {
-			ArrayList<Varnode> params = HelperFunctions.getFunctionParameters(sysFunc, context);
-			ArrayList<MemPos> stackArgs = HelperFunctions.getStackArgs(stackPointer, addrFactory, params, context);
-			// params contains stack arguments as Stack Varnodes which are removed in favour of using stackpointer + offset notation
-			params = HelperFunctions.removeStackNodes(params);
 			for(Address callAddr : Build.callerSysMap.get(sysFunc)) {
-				TrackStorage storage = new TrackStorage(sysFunc, callAddr, params, stackArgs, new ArrayList<String>(), new ArrayList<String>());
+				ArrayList<Varnode> params = HelperFunctions.getFunctionParameters(sysFunc, context);
+				ArrayList<MemPos> stackArgs = HelperFunctions.getStackArgs(stackPointer, addrFactory, params, context);
+				// params contains stack arguments as Stack Varnodes which are removed in favour of using stackpointer + offset notation
+			    params = HelperFunctions.removeStackNodes(params);
+				TrackStorage storage = new TrackStorage(sysFunc, callAddr, params, stackArgs);
 				Block startBlock = blockGraph.getBlockByAddress(callAddr);
 				buildTraceToProgramStart(storage, 0, blockGraph, startBlock);
-				mergable.add(storage);
 				output.add(mergeTrackerForSystemCall());
 			}
 		}
@@ -156,16 +155,47 @@ public class OsComInjection extends GhidraScript {
 	 * Recursively iterate through source blocks and get the corresponding TrackStorage
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
-	public void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block) {
+	protected void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block) {
 		getInputLocationAtBlockStart(storage, block, depthLevel);
-		if(!HelperFunctions.trackerIsConstant(storage)) {
-			for(Address src : block.getSources()) {
-				Block srcBlock = graph.getBlockByAddress(src);
-				if(srcBlock != null && depthLevel < 15) {
-					buildTraceToProgramStart(storage, depthLevel+1, graph, srcBlock);
-				}
+		if(!HelperFunctions.trackerIsConstant(storage) && depthLevel < 15) {
+			ArrayList<Block> sourceBlocks = filterSourcesByNull(graph, block.getSources());
+			if(sourceBlocks.size() > 0) {
+				buildTraceToProgramStart(storage, depthLevel+1, graph, sourceBlocks.get(0));
+			    if(sourceBlocks.size() > 1) {
+				    for(int index = 1; index < sourceBlocks.size(); index++) {
+					    TrackStorage clone = deepCopy(storage);
+					    buildTraceToProgramStart(clone, depthLevel+1, graph, sourceBlocks.get(index));
+				    }
+			    }
+			} else {
+				mergable.add(storage);
+			}
+		} else {
+			mergable.add(storage);
+		}
+	}
+
+
+	public ArrayList<Block> filterSourcesByNull(BlockGraph graph, ArrayList<Address> sources) {
+		ArrayList<Block> filtered = new ArrayList<Block>();
+		for(Address src : sources) {
+			Block srcBlock = graph.getBlockByAddress(src);
+			if(srcBlock != null) {
+				filtered.add(srcBlock);
 			}
 		}
+
+		return filtered;
+	}
+
+
+	public TrackStorage deepCopy(TrackStorage storage) {
+		TrackStorage clone = new TrackStorage(storage.getFunc(), storage.getCall(), new ArrayList<Varnode>(), new ArrayList<MemPos>());
+		storage.getOriginFuncs().forEach(of -> clone.addOriginFunc(new String(of)));
+		storage.getCalledFuncs().forEach(cf -> clone.addCalledFunc(new String(cf)));
+		storage.getNodes().forEach(node -> clone.addNode(node));
+		storage.getMemPos().forEach(pos -> clone.addMem(new MemPos(pos.getRegister(), pos.getOffset())));
+		return clone;
 	}
 	
 	
@@ -175,7 +205,7 @@ public class OsComInjection extends GhidraScript {
 	 * -------------------------------------------------------------------------------------------------------
 	 * */
 	protected TrackStorage mergeTrackerForSystemCall() {
-		TrackStorage merge = new TrackStorage(mergable.get(0).getFunc(), mergable.get(0).getCall(), new ArrayList<Varnode>(), new ArrayList<MemPos>(), new ArrayList<String>(), new ArrayList<String>());
+		TrackStorage merge = new TrackStorage(mergable.get(0).getFunc(), mergable.get(0).getCall(), new ArrayList<Varnode>(), new ArrayList<MemPos>());
 		for(TrackStorage storage : mergable) {
 			merge.getNodes().addAll(storage.getNodes());
 			merge.getMemPos().addAll(storage.getMemPos());
@@ -256,7 +286,7 @@ public class OsComInjection extends GhidraScript {
 		if(stackOps.contains(group.getInstruction().getMnemonicString())) {
 			ArrayList<String> reg = storage.getMemPos().stream().map(m -> context.getRegister(m.getRegister()).getName()).collect(Collectors.toCollection(ArrayList::new));
 			if(reg.contains(stackPointer.getName())) {
-				updateStackVariables(storage, group);
+				HelperFunctions.updateStackVariables(storage, group, context, stackPointer);
 			}
 		}
 		// If we have no output objects, we have a STORE instruction. 
@@ -300,92 +330,40 @@ public class OsComInjection extends GhidraScript {
 		if(PcodeOp.CALL == branch.getOpcode()) {
 			Function calledFunc = funcMan.getFunctionAt(branch.getInput(0).getAddress());
 			if(checkCharFunctions.contains(calledFunc.getName()) && depthLevel < 4) {
-				Varnode first = context.getRegisterVarnode(parameterRegister.get(0));
-				if(storage.notATrackedNode(first)) {
-					storage.addNode(first);
-				}
-				storage.addCalledFunc(calledFunc.getName());
+				int arg_count = 1;
+				HelperFunctions.getFunctionParams(storage, calledFunc, context, parameterRegister, cpuArch, addrFactory, stackPointer, arg_count);
 			}
 			else if(inputFunctions.contains(calledFunc.getName()) && depthLevel < 5) {
-				getInputFunctionParams(storage, calledFunc);
+				removeTracked(storage);
+				int arg_count = 2;
+				HelperFunctions.getFunctionParams(storage, calledFunc, context, parameterRegister, cpuArch, addrFactory, stackPointer, arg_count);
 			}
 			else if(vulnFunctions.containsKey(calledFunc.getName()) && depthLevel < 3) {
-				getVulnFunctionParams(storage, calledFunc);
+				removeTracked(storage);
+				HelperFunctions.getVulnFunctionParams(storage, calledFunc, context, parameterRegister, vulnFunctions, cpuArch, addrFactory, stackPointer);
 				
 			} else if(calledFunc.isThunk() && calledFunc.getParameterCount() == 0 && !calledFunc.hasNoReturn()) {
 				for(Varnode node : storage.getNodes()) {
 					if(node.isRegister() && returnRegister.getName().equals(context.getRegister(node).getName())) {
 						storage.addOriginFunc(calledFunc.getName());
+						break;
 					}
 				}
-				
+				removeTracked(storage);
 			}
 		}
 	}
-	
-	
-	protected void getInputFunctionParams(TrackStorage storage, Function calledFunc) {
-		storage.addCalledFunc(calledFunc.getName());
-		if(!cpuArch.equals("x86_32")) {
-			Varnode first = context.getRegisterVarnode(parameterRegister.get(0));
-			Varnode second = context.getRegisterVarnode(parameterRegister.get(1));
-			if(storage.notATrackedNode(first)) {
-				storage.addNode(first);
-			}
-			if(storage.notATrackedNode(second)) {
-				storage.addNode(second);
+
+
+	protected void removeTracked(TrackStorage storage) {
+		ArrayList<Varnode> registers = new ArrayList<Varnode>();
+		for(Varnode node: storage.getNodes()) {
+			if(!node.isRegister()) {
+				registers.add(node);
 			}
 		}
-	}
-	
-	
-	protected void getVulnFunctionParams(TrackStorage storage, Function calledFunc) {
-		storage.addCalledFunc(calledFunc.getName());
-		ArrayList<Varnode> newNodes = new ArrayList<Varnode>();
-		Variable[] vars = calledFunc.getParameters();
-		for(Integer idx : vulnFunctions.get(calledFunc.getName())) {
-			Varnode var = vars[idx].getFirstStorageVarnode();
-			if(var.isFree() && !var.isRegister()) {
-				MemPos pos = new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress(var.getAddress().getOffset()), var.getSize()));
-				if(storage.notATrackedMemoryPosition(pos.getRegister(), pos.getOffset(), context)) {
-					storage.addMem(pos);
-				}
-			} else {
-				newNodes.add(var);
-			}
-		}
-		for(Varnode node : storage.getNodes()) {
-			if(node.isConstant()) {
-				newNodes.add(node);
-			}
-		}
-		if(cpuArch.equals("ARM-32")) {
-			if(calledFunc.getName().equals("sprintf")) {
-				newNodes.add(context.getRegisterVarnode(context.getRegister("r2")));
-			} else if(calledFunc.getName().equals("snprintf")) {
-				newNodes.add(context.getRegisterVarnode(context.getRegister("r3")));
-			}
-		}
-		
-		storage.setNodes(newNodes);
-	}
-	
-	
-	protected void updateStackVariables(TrackStorage storage, InstructionCompound group) {
-		PcodeOp firstInstr = group.getGroup().get(0).getOp();
-		if(PcodeOp.COPY == firstInstr.getOpcode()) {
-			Varnode in = firstInstr.getInput(0);
-			if(storage.notATrackedNode(in)) {
-				storage.addNode(in);
-			}
-		} else if(PcodeOp.INT_ADD == firstInstr.getOpcode()) {
-			MemPos newPos = new MemPos(firstInstr.getInput(0), firstInstr.getInput(1));
-			if(storage.notATrackedMemoryPosition(newPos.getRegister(), newPos.getOffset(), context)) {
-				storage.addMem(newPos);
-			}
-		}
-		
-		HelperFunctions.removeStackPointer(stackPointer, storage, context);
+		storage.setNodes(registers);
+		storage.setMemPos(new ArrayList<MemPos>());
 	}
 	
 	
