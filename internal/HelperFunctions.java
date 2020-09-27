@@ -74,7 +74,6 @@ public class HelperFunctions {
 	public static String getCPUArch(Program program) {
 		String langId = program.getCompilerSpec().getLanguage().getLanguageID().getIdAsString();
 		String[] arch = langId.split(":");
-		System.out.println(arch[0] + "-" + arch[2]);
 		return arch[0] + "-" + arch[2];
 	}
 	

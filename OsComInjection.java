@@ -122,7 +122,7 @@ public class OsComInjection extends GhidraScript {
 		BlockGraph graph = Build.buildBlockGraph(funcMan, simpleBm, listing, context, getMonitor());
 		Build.createCallerSysMap(symTab, funcMan);
 		finalOut = findSourceOfSystemCallInput(graph);
-		PrintTracing.printCalls(context, finalOut);
+		PrintTracing.printResults(finalOut, context);
 	}
 
 	
@@ -233,7 +233,7 @@ public class OsComInjection extends GhidraScript {
 	 * */
 	protected void getInputLocationAtBlockStart(TrackStorage storage, Block block, int depthLevel) {
 		ArrayList<InstructionCompound> groups = block.getOps();
-		PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
+		//PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
 		for(int i = groups.size(); i-- > 0;) {
 			InstructionCompound group = groups.get(i);
 			int numOfInstr = group.getGroup().size();
@@ -255,7 +255,7 @@ public class OsComInjection extends GhidraScript {
 					checkForInterestingObjects(storage, group, block);
 				}
 				
-				PrintTracing.printTrace(storage, context, depthLevel, groups, i);
+				//PrintTracing.printTrace(storage, context, depthLevel, groups, i);
 				
 				if(HelperFunctions.trackerIsConstant(storage)) {
 					break;
