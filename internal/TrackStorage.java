@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.pcode.Varnode;
+import ghidra.program.util.VarnodeContext;
 
 public class TrackStorage {
 	private Function func;
@@ -33,12 +34,32 @@ public class TrackStorage {
 		this.nodes = registers;
 	}
 
+	public void addNode(Varnode node) {
+		this.nodes.add(node);
+	}
+
+	public void removeNode(Varnode node) {
+		this.nodes.remove(node);
+	}
+
 	public ArrayList<MemPos> getMemPos() {
 		return memPos;
 	}
 
 	public void setMemPos(ArrayList<MemPos> memPos) {
 		this.memPos = memPos;
+	}
+
+	public void addMem(MemPos mem) {
+		this.memPos.add(mem);
+	}
+
+	public void removeMem(Varnode register, Varnode offset, VarnodeContext context) {
+		for(MemPos pos : getMemPos()) {
+			if(context.getRegister(pos.getRegister()).getName().equals(context.getRegister(register).getName()) && pos.getOffset().toString().equals(offset.toString())) {
+				this.memPos.remove(pos);
+			}
+		}
 	}
 
 	public Address getCall() {
@@ -55,14 +76,6 @@ public class TrackStorage {
 
 	public void setFunc(Function func) {
 		this.func = func;
-	}
-	
-	public void addNode(Varnode node) {
-		this.nodes.add(node);
-	}
-	
-	public void addMem(MemPos mem) {
-		this.memPos.add(mem);
 	}
 
 	public ArrayList<String> getCalledFuncs() {
@@ -87,5 +100,24 @@ public class TrackStorage {
 	
 	public void addOriginFunc(String originFunc) {
 		originFuncs.add(originFunc);
+	}
+
+	public Boolean notATrackedNode(Varnode node) {
+		for(Varnode nd : getNodes()) {
+			if(nd.toString().equals(node.toString())) {
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	
+	public Boolean notATrackedMemoryPosition(Varnode register, Varnode offset, VarnodeContext context) {
+		for(MemPos pos : getMemPos()) {
+			if(context.getRegister(pos.getRegister()).getName().equals(context.getRegister(register).getName()) && pos.getOffset().toString().equals(offset.toString())) {
+				return false;
+			}
+		}
+		return true;
 	}
 }

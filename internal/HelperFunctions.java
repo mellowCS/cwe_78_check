@@ -34,7 +34,7 @@ public class HelperFunctions {
 		case "x86-64": return context.getRegister("RBP");
 		case "x86-32": return context.getRegister("EBP");
 		case "ARM-32": return context.getRegister("r11");
-		default: return context.getRegister("v0");
+		default: return context.getRegister("fp");
 		}
 	}
 	
@@ -140,26 +140,6 @@ public class HelperFunctions {
 	}
 	
 	
-	public static Boolean notATrackedNode(TrackStorage storage, Varnode node) {
-		for(Varnode store : storage.getNodes()) {
-			if(store.toString().equals(node.toString())) {
-				return false;
-			}
-		}
-		return true;
-	}
-	
-	
-	public static Boolean notATrackedMemoryPosition(TrackStorage storage, Varnode register, Varnode offset, VarnodeContext context) {
-		for(MemPos pos : storage.getMemPos()) {
-			if(context.getRegister(pos.getRegister()).getName().equals(context.getRegister(register).getName()) && pos.getOffset().toString().equals(offset.toString())) {
-				return false;
-			}
-		}
-		return true;
-	}
-	
-	
 	public static ArrayList<Varnode> getFunctionParameters(Function func, VarnodeContext context) {
 		Parameter[] params = func.getParameters();
 		ArrayList<Varnode> inputs = new ArrayList<Varnode>();
@@ -204,7 +184,15 @@ public class HelperFunctions {
 	}
 	
 	
-	public static Varnode getStoreInput(PcodeOp op) {
+	public static Boolean checkIfStoreInputisVirtual(PcodeOp op) {
+		if(op.getNumInputs() == 3) {
+			return op.getInput(2).isUnique();
+		}
+		return op.getInput(1).isUnique();
+	}
+
+
+	public static Varnode parseStoreInput(PcodeOp op) {
 		if(op.getNumInputs() == 3) {
 			return op.getInput(2);
 		}
@@ -226,7 +214,7 @@ public class HelperFunctions {
 	}
 	
 	
-	public static ArrayList<MemPos> matchTrackedMemPosWithOutput(Register stackPointer, TrackStorage storage, ArrayList<String> inputs, VarnodeContext context) {
+	public static ArrayList<MemPos> matchTrackedMemPosWithInput(Register stackPointer, TrackStorage storage, ArrayList<String> inputs, VarnodeContext context) {
 		ArrayList<MemPos> tracked = new ArrayList<MemPos>();
 		MemPos stackPos = stackPointerTracked(stackPointer, storage, context);
 		if(inputs.contains(stackPointer.getName()) && stackPos != null) {
