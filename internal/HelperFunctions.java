@@ -286,9 +286,17 @@ public class HelperFunctions {
 	public static void getVulnFunctionParams(TrackStorage storage, Function calledFunc, VarnodeContext context, ArrayList<Register> parameterRegister, HashMap<String, Integer> vulnFunctions, String cpuArch, AddressFactory addrFactory, Register stackPointer) {
 		storage.addCalledFunc(calledFunc.getName());
 		if(!cpuArch.equals("x86-32")) {
-			Varnode arg = context.getRegisterVarnode(parameterRegister.get(vulnFunctions.get(calledFunc.getName())));
+			int parameterIndex = vulnFunctions.get(calledFunc.getName());
+			Varnode arg = context.getRegisterVarnode(parameterRegister.get(parameterIndex));
+			Varnode format_arg = null;
+			if(calledFunc.getName().equals("snprintf") || calledFunc.getName().equals("sprintf")) {
+				format_arg = context.getRegisterVarnode(parameterRegister.get(parameterIndex-1));
+			}
 			if(storage.notATrackedNode(arg)) {
 				storage.addNode(arg);
+			}
+			if(format_arg != null && storage.notATrackedNode(format_arg)) {
+				storage.addNode(format_arg);
 			}
 		} else {
 			storage.addMem(new MemPos(context.getRegisterVarnode(stackPointer), new Varnode(addrFactory.getConstantAddress(4), 4)));
