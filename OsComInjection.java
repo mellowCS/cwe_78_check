@@ -363,10 +363,10 @@ public class OsComInjection extends GhidraScript {
 				for(Varnode node : storage.getNodes()) {
 					if(node.isRegister() && returnRegister.getName().equals(context.getRegister(node).getName())) {
 						storage.addOriginFunc(calledFunc.getName());
+						removeTracked(storage);
 						break;
 					}
 				}
-				removeTracked(storage);
 			}
 		}
 	}
