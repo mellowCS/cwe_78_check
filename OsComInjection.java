@@ -34,6 +34,7 @@ public class OsComInjection extends GhidraScript {
 		put("strncat", 1);
 		put("sprintf", 2);
 		put("snprintf", 3);
+		put("memcpy", 1);
 	}};
 	
 	
@@ -213,7 +214,7 @@ public class OsComInjection extends GhidraScript {
 			merge.getOriginFuncs().addAll(storage.getOriginFuncs());
 		}
 		ArrayList<Varnode> mergedNodes = new ArrayList<Varnode>(merge.getNodes().stream().distinct().collect(Collectors.toList()));
-		ArrayList<MemPos> mergedMem = new ArrayList<MemPos>(merge.getMemPos().stream().distinct().collect(Collectors.toList()));
+		ArrayList<MemPos> mergedMem = mergeMemPos(merge);
 		ArrayList<String> mergedCalled = new ArrayList<String>(merge.getCalledFuncs().stream().distinct().collect(Collectors.toList()));
 		ArrayList<String> mergedOrigin = new ArrayList<String>(merge.getOriginFuncs().stream().distinct().collect(Collectors.toList()));
 		merge.setNodes(mergedNodes);
@@ -224,6 +225,22 @@ public class OsComInjection extends GhidraScript {
 		
 		return merge;
 	}
+
+
+	protected ArrayList<MemPos> mergeMemPos(TrackStorage merge){
+		ArrayList<MemPos> filtered = new ArrayList<MemPos>();
+		for(MemPos pos : merge.getMemPos()) {
+			if(filtered.size() == 0) {
+				filtered.add(pos);
+			}
+			for(MemPos fp : filtered) {
+				if(!(fp.getRegister().toString().equals(pos.getRegister().toString()) && fp.getOffset().toString().equals(pos.getOffset().toString()))) {
+					filtered.add(pos);
+				}
+			}
+		}
+		return filtered;
+	}
 	
 	
 	/*
@@ -233,7 +250,7 @@ public class OsComInjection extends GhidraScript {
 	 * */
 	protected void getInputLocationAtBlockStart(TrackStorage storage, Block block, int depthLevel) {
 		ArrayList<InstructionCompound> groups = block.getOps();
-		//PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
+		PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
 		for(int i = groups.size(); i-- > 0;) {
 			InstructionCompound group = groups.get(i);
 			int numOfInstr = group.getGroup().size();
@@ -255,7 +272,7 @@ public class OsComInjection extends GhidraScript {
 					checkForInterestingObjects(storage, group, block);
 				}
 				
-				//PrintTracing.printTrace(storage, context, depthLevel, groups, i);
+				PrintTracing.printTrace(storage, context, depthLevel, groups, i);
 				
 				if(HelperFunctions.trackerIsConstant(storage)) {
 					break;
