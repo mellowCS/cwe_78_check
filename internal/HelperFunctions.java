@@ -20,6 +20,13 @@ import ghidra.program.model.symbol.Reference;
 import ghidra.program.util.VarnodeContext;
 
 public class HelperFunctions {
+	
+	/** 
+	 * @param cpuArch
+	 * @param context
+	 * @return Register
+	 * 
+	 */
 	public static Register getReturnRegister(String cpuArch, VarnodeContext context) {
 		switch(cpuArch) {
 		case "x86-64": return context.getRegister("RAX");
@@ -30,6 +37,12 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param cpuArch
+	 * @param context
+	 * @return Register
+	 */
 	public static Register getFramePointer(String cpuArch, VarnodeContext context) {
 		switch(cpuArch) {
 		case "x86-64": return context.getRegister("RBP");
@@ -40,6 +53,12 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param cpuArch
+	 * @param context
+	 * @return ArrayList<Register>
+	 */
 	public static ArrayList<Register> getParameterRegister(String cpuArch, VarnodeContext context) {
 		ArrayList<Register> parameters = new ArrayList<Register>();
 		switch(cpuArch) {
@@ -71,6 +90,12 @@ public class HelperFunctions {
 	}
 	
 	
+
+	
+	/** 
+	 * @param program
+	 * @return String
+	 */
 	public static String getCPUArch(Program program) {
 		String langId = program.getCompilerSpec().getLanguage().getLanguageID().getIdAsString();
 		String[] arch = langId.split(":");
@@ -78,6 +103,17 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param stackPointer
+	 * @param addrFactory
+	 * @param params
+	 * @param context
+	 * @return ArrayList<MemPos>
+	 * 
+	 * For each stack varnode, it creates a stackpointer + offset pair
+	 * 
+	 */
 	public static ArrayList<MemPos> getStackArgs(Register stackPointer, AddressFactory addrFactory, ArrayList<Varnode> params, VarnodeContext context) {
 		ArrayList<MemPos> stackArgs = new ArrayList<MemPos>();
 		for(Varnode param : params) {
@@ -90,6 +126,14 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param params
+	 * @return ArrayList<Varnode>
+	 * 
+	 * Removes stack varnodes
+	 * 
+	 */
 	public static ArrayList<Varnode> removeStackNodes(ArrayList<Varnode> params) {
 		ArrayList<Varnode> clean = new ArrayList<Varnode>();
 		for(Varnode param : params) {
@@ -102,11 +146,14 @@ public class HelperFunctions {
 	}
 	
 	
-	/*
-	 * -------------------------------------------------------------------------------------------------------
-	 * Checks whether all inputs have been tracked to a constant. If so, it returns true which serves as a break condition for a path
-	 * -------------------------------------------------------------------------------------------------------
-	 * */
+	
+	/** 
+	 * @param storage
+	 * @return Boolean
+	 * 
+	 * Checks whether the tracker only contains constant values
+	 * 
+	 */
 	public static Boolean trackerIsConstant(TrackStorage storage) {
 		if(storage.getMemPos().isEmpty()) {
 			for(Varnode node : storage.getNodes()) {
@@ -120,6 +167,14 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param input
+	 * @return Boolean
+	 * 
+	 * Checks whether the offset is negative
+	 * 
+	 */
 	public static Boolean isNegative(String input) {
 		if(input.startsWith("-")) {
 			return true;
@@ -128,6 +183,15 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param program
+	 * @param instr
+	 * @return String
+	 * 
+	 * Gets referenced data from a memory location if available
+	 * 
+	 */
 	public static String getReferencedData(Program program, Instruction instr) {
 		Reference[] memRef = instr.getReferencesFrom();
 		for(Reference ref : memRef) {
@@ -141,6 +205,15 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param func
+	 * @param context
+	 * @return ArrayList<Varnode>
+	 * 
+	 * Gets a function's parameters
+	 * 
+	 */
 	public static ArrayList<Varnode> getFunctionParameters(Function func, VarnodeContext context) {
 		Parameter[] params = func.getParameters();
 		ArrayList<Varnode> inputs = new ArrayList<Varnode>();
@@ -152,6 +225,14 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param frame
+	 * @return ArrayList<Long>
+	 * 
+	 * Gets the stack variable offsets from the stack frame
+	 * 
+	 */
 	public static ArrayList<Long> getStackVarOffsets(StackFrame frame) {
 		ArrayList<Long> varOffsets = new ArrayList<Long>();
 		for(Variable var : frame.getStackVariables()) {
@@ -162,6 +243,15 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param stackPointer
+	 * @param storage
+	 * @param context
+	 * 
+	 * Removes the stackpointer + offset pair
+	 * 
+	 */
 	public static void removeStackPointer(Register stackPointer, TrackStorage storage, VarnodeContext context) {
 		ArrayList<MemPos> updated = new ArrayList<MemPos>();
 		Boolean removed = false;
@@ -178,6 +268,15 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param input
+	 * 
+	 * Removes tracked memory positions that match the input of the instructions as they are overwritten
+	 * by a different source
+	 * 
+	 */
 	public static void removeTrackedMemoryPositions(TrackStorage storage, ArrayList<MemPos> input) {
 		for(MemPos pos : input) {
 			storage.getMemPos().remove(pos);
@@ -185,6 +284,14 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param op
+	 * @return Boolean
+	 * 
+	 * Checks whether the input of a store instruction is a virtual register
+	 * 
+	 */
 	public static Boolean checkIfStoreInputisVirtual(PcodeOp op) {
 		if(op.getNumInputs() == 3) {
 			return op.getInput(2).isUnique();
@@ -193,6 +300,14 @@ public class HelperFunctions {
 	}
 
 
+	
+	/** 
+	 * @param op
+	 * @return Varnode
+	 * 
+	 * Gets the store input depending on it having a address space varnode or not
+	 * 
+	 */
 	public static Varnode parseStoreInput(PcodeOp op) {
 		if(op.getNumInputs() == 3) {
 			return op.getInput(2);
@@ -201,6 +316,16 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param output
+	 * @param context
+	 * @return ArrayList<Varnode>
+	 * 
+	 * Matches register varnodes in the tracker with the output of the assembly instruction
+	 * 
+	 */
 	public static ArrayList<Varnode> matchTrackedNodesWithOutput(TrackStorage storage, ArrayList<String> output, VarnodeContext context){
 		ArrayList<Varnode> seen = new ArrayList<Varnode>();
 		for(String out : output) {
@@ -215,6 +340,17 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param stackPointer
+	 * @param storage
+	 * @param inputs
+	 * @param context
+	 * @return ArrayList<MemPos>
+	 * 
+	 * Matches memory positions with the input of the assembly instruction
+	 * 
+	 */
 	public static ArrayList<MemPos> matchTrackedMemPosWithInput(Register stackPointer, TrackStorage storage, ArrayList<String> inputs, VarnodeContext context) {
 		ArrayList<MemPos> tracked = new ArrayList<MemPos>();
 		MemPos stackPos = stackPointerTracked(stackPointer, storage, context);
@@ -228,6 +364,17 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param tracked
+	 * @param inputs
+	 * @param context
+	 * @return ArrayList<MemPos>
+	 * 
+	 * Matches the offset of a memory position with the offset of another memory position
+	 * 
+	 */
 	public static ArrayList<MemPos> matchOffset(TrackStorage storage, ArrayList<MemPos> tracked, ArrayList<String> inputs, VarnodeContext context) {
 		for(String in : inputs) {
 			if(in.startsWith("0x") || in.startsWith("-0x")) {
@@ -256,6 +403,16 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param stackPointer
+	 * @param storage
+	 * @param context
+	 * @return MemPos
+	 * 
+	 * Returns a stack position if it is tracked
+	 * 
+	 */
 	public static MemPos stackPointerTracked(Register stackPointer, TrackStorage storage, VarnodeContext context) {
 		for(MemPos pos : storage.getMemPos()) {
 			if(context.getRegister(pos.getRegister()).getName().equals(stackPointer.getName())) {
@@ -266,6 +423,20 @@ public class HelperFunctions {
 	}
 
 
+	
+	/** 
+	 * @param storage
+	 * @param calledFunc
+	 * @param context
+	 * @param parameterRegister
+	 * @param cpuArch
+	 * @param addrFactory
+	 * @param stackPointer
+	 * @param arg_count
+	 * 
+	 * Gets the function parameter of a checkchar or input function
+	 * 
+	 */
 	public static void getFunctionParams(TrackStorage storage, Function calledFunc, VarnodeContext context, ArrayList<Register> parameterRegister, String cpuArch, AddressFactory addrFactory, Register stackPointer, int arg_count) {
 		storage.addCalledFunc(calledFunc.getName());
 		if(!cpuArch.equals("x86-32")) {
@@ -283,6 +454,20 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param calledFunc
+	 * @param context
+	 * @param parameterRegister
+	 * @param vulnFunctions
+	 * @param cpuArch
+	 * @param addrFactory
+	 * @param stackPointer
+	 * 
+	 * Gets the function parameters of a vulnerable function
+	 * 
+	 */
 	public static void getVulnFunctionParams(TrackStorage storage, Function calledFunc, VarnodeContext context, ArrayList<Register> parameterRegister, HashMap<String, Integer> vulnFunctions, String cpuArch, AddressFactory addrFactory, Register stackPointer) {
 		storage.addCalledFunc(calledFunc.getName());
 		if(!cpuArch.equals("x86-32")) {
@@ -305,6 +490,16 @@ public class HelperFunctions {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param group
+	 * @param context
+	 * @param stackPointer
+	 * 
+	 * Removes a stack variable from the tracker and adds the pushed value if the current assembly instruction is a push instruction
+	 * 
+	 */
 	public static void updateStackVariables(TrackStorage storage, InstructionCompound group, VarnodeContext context, Register stackPointer) {
 		PcodeOp firstInstr = group.getGroup().get(0).getOp();
 		if(PcodeOp.COPY == firstInstr.getOpcode()) {
@@ -320,5 +515,24 @@ public class HelperFunctions {
 		}
 		
 		removeStackPointer(stackPointer, storage, context);
+	}
+
+
+	/** 
+	 * @param storage
+	 * 
+	 * Removes all tracked nodes, other than addresses and constants,
+	 * and all memory positions
+	 * 
+	 */
+	public static void removeTracked(TrackStorage storage) {
+		ArrayList<Varnode> registers = new ArrayList<Varnode>();
+		for(Varnode node: storage.getNodes()) {
+			if(!node.isRegister()) {
+				registers.add(node);
+			}
+		}
+		storage.setNodes(registers);
+		storage.setMemPos(new ArrayList<MemPos>());
 	}
 }
