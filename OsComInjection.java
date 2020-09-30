@@ -29,6 +29,7 @@ import internal.*;
 
 public class OsComInjection extends GhidraScript {
 	
+	// Functions that may imply vulnerable input to the system calls
 	private HashMap<String, Integer> vulnFunctions = new HashMap<String, Integer> () {{
 		put("strcat", 1);
 		put("strncat", 1);
@@ -37,13 +38,13 @@ public class OsComInjection extends GhidraScript {
 		put("memcpy", 1);
 	}};
 	
-	
+
 	private List<String> inputFunctions = new ArrayList<String> () {{
 		add("scanf");
 		add("__isoc99_scanf");
 	}};
 	
-	
+	// Functions that check for characters and may imply a safe system call
 	private List<String> checkCharFunctions = new ArrayList<String> () {{
 		add("strchr");
 		add("strrchr");
@@ -127,11 +128,16 @@ public class OsComInjection extends GhidraScript {
 	}
 
 	
-	/*
-	 * -------------------------------------------------------------------------------------------------------
-	 * Gets the input source for each system call
-	 * -------------------------------------------------------------------------------------------------------
-	 * */
+	
+	
+	/** 
+	 * @param blockGraph
+	 * @return ArrayList<TrackStorage>
+	 * 
+	 * Iterates over each system call and address at which it the function was called.
+	 * In each iteration, a trace to the origin is generated and the tracked values are returned.
+	 * 
+	 */
 	protected ArrayList<TrackStorage> findSourceOfSystemCallInput(BlockGraph blockGraph) {
 		ArrayList<TrackStorage> output = new ArrayList<TrackStorage>();
 		for(Function sysFunc : Build.callerSysMap.keySet()) {
@@ -151,11 +157,19 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
-	/*
-	 * -------------------------------------------------------------------------------------------------------
-	 * Recursively iterate through source blocks and get the corresponding TrackStorage
-	 * -------------------------------------------------------------------------------------------------------
-	 * */
+	
+	
+	/** 
+	 * @param storage
+	 * @param depthLevel
+	 * @param graph
+	 * @param block
+	 * 
+	 * Basic blocks, starting from the system call block, are recursively iterated backwards to find the origin
+	 * If the tracked values are all constant, the iteration is stopped.
+	 * For multiple tracked paths, the tracked values are put in an array of trackers for latter merging.
+	 * 
+	 */
 	protected void buildTraceToProgramStart(TrackStorage storage, int depthLevel, BlockGraph graph, Block block) {
 		getInputLocationAtBlockStart(storage, block, depthLevel);
 		if(!HelperFunctions.trackerIsConstant(storage) && depthLevel < 15) {
@@ -177,6 +191,15 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param graph
+	 * @param sources
+	 * @return ArrayList<Block>
+	 * 
+	 * Filters source blocks by checking if they are null
+	 * 
+	 */
 	public ArrayList<Block> filterSourcesByNull(BlockGraph graph, ArrayList<Address> sources) {
 		ArrayList<Block> filtered = new ArrayList<Block>();
 		for(Address src : sources) {
@@ -190,6 +213,14 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param storage
+	 * @return TrackStorage
+	 * 
+	 * Creates a deep copy of the tracker storage for following multiple paths that split from one
+	 * 
+	 */
 	public TrackStorage deepCopy(TrackStorage storage) {
 		TrackStorage clone = new TrackStorage(storage.getFunc(), storage.getCall(), new ArrayList<Varnode>(), new ArrayList<MemPos>());
 		storage.getOriginFuncs().forEach(of -> clone.addOriginFunc(new String(of)));
@@ -200,11 +231,15 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
-	/*
-	 * -------------------------------------------------------------------------------------------------------
-	 * Merge all track storages from the same recursion level
-	 * -------------------------------------------------------------------------------------------------------
-	 * */
+	
+	
+	/** 
+	 * @return TrackStorage
+	 * 
+	 * If multiple trackers have been created, the results are merged into on tracker
+	 * by simply checking for duplicates
+	 * 
+	 */
 	protected TrackStorage mergeTrackerForSystemCall() {
 		TrackStorage merge = new TrackStorage(mergable.get(0).getFunc(), mergable.get(0).getCall(), new ArrayList<Varnode>(), new ArrayList<MemPos>());
 		for(TrackStorage storage : mergable) {
@@ -227,6 +262,14 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param merge
+	 * @return ArrayList<MemPos>
+	 * 
+	 * Merges memory positions and removes duplicates
+	 * 
+	 */
 	protected ArrayList<MemPos> mergeMemPos(TrackStorage merge){
 		ArrayList<MemPos> filtered = new ArrayList<MemPos>();
 		for(MemPos pos : merge.getMemPos()) {
@@ -243,14 +286,21 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
-	/*
-	 * -------------------------------------------------------------------------------------------------------
-	 * Return the tracked registers and memory positions for the current block
-	 * -------------------------------------------------------------------------------------------------------
-	 * */
+	
+	
+	/** 
+	 * @param storage
+	 * @param block
+	 * @param depthLevel
+	 * 
+	 * Iterates backwards over a basic block to get the system call input location at the start
+	 * of the block.
+	 * It ignores the very first assembly instruction as it belongs to the system call itself
+	 * and checks each last intruction of a block for interesting function calls
+	 * 
+	 */
 	protected void getInputLocationAtBlockStart(TrackStorage storage, Block block, int depthLevel) {
 		ArrayList<InstructionCompound> groups = block.getOps();
-		PrintTracing.printTrace(storage, context, depthLevel, groups, groups.size() - 1);
 		for(int i = groups.size(); i-- > 0;) {
 			InstructionCompound group = groups.get(i);
 			int numOfInstr = group.getGroup().size();
@@ -259,7 +309,6 @@ public class OsComInjection extends GhidraScript {
 				if(i == groups.size()-1 && depthLevel == 0) {
 					continue;
 				}
-				
 				if(i == groups.size()-1 && depthLevel > 0) {
 					// Checks if the last Pcode instruction of a block is actually a jump
 					PcodeOp branch = group.getGroup().get(numOfInstr - 1).getOp();
@@ -271,9 +320,6 @@ public class OsComInjection extends GhidraScript {
 				} else {
 					checkForInterestingObjects(storage, group, block);
 				}
-				
-				PrintTracing.printTrace(storage, context, depthLevel, groups, i);
-				
 				if(HelperFunctions.trackerIsConstant(storage)) {
 					break;
 				}
@@ -283,6 +329,15 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param storage
+	 * @param group
+	 * @param block
+	 * 
+	 * Checks whether assembly instructions contains in - or output objects that match an object in the tracker
+	 * 
+	 */
 	protected void checkForInterestingObjects(TrackStorage storage, InstructionCompound group, Block block) {
 		ArrayList<Varnode> matchedOutput = HelperFunctions.matchTrackedNodesWithOutput(storage, group.getResultObjects(), context);
 		ArrayList<MemPos> matchedInput = HelperFunctions.matchTrackedMemPosWithInput(stackPointer, storage, group.getInputObjects(), context);
@@ -297,16 +352,29 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param group
+	 * @param block
+	 * @param output
+	 * @param input
+	 * @param noOutput
+	 * 
+	 * Analyses a group of Pcode instructions that belong to one assembly instruction.
+	 * It further checks for stackpointer operations in the block.
+	 * It treats the block differently, depending on it having output or not.
+	 * If there ís no output, the STORE instruction is analysed, the whole block otherwise.
+	 * 
+	 */
 	protected void analysePcodeCompound(TrackStorage storage, InstructionCompound group, Block block, ArrayList<Varnode> output, ArrayList<MemPos> input, Boolean noOutput) {
 		ArrayList<SimpleInstruction> ops = group.getGroup();
-		// If we track the stackpointer and have a PUSH or POP instruction update the tracked Stack Variables
 		if(stackOps.contains(group.getInstruction().getMnemonicString())) {
 			ArrayList<String> reg = storage.getMemPos().stream().map(m -> context.getRegister(m.getRegister()).getName()).collect(Collectors.toCollection(ArrayList::new));
 			if(reg.contains(stackPointer.getName())) {
 				HelperFunctions.updateStackVariables(storage, group, context, stackPointer);
 			}
 		}
-		// If we have no output objects, we have a STORE instruction. 
 		if(noOutput) {
 			getStoredInput(storage, input, ops);
 			
@@ -320,6 +388,15 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param storage
+	 * @param input
+	 * @param ops
+	 * 
+	 * Checks if the input of the store instruction comes from the COPY or STORE op.
+	 * 
+	 */
 	protected void getStoredInput(TrackStorage storage, ArrayList<MemPos> input, ArrayList<SimpleInstruction> ops) {
 		ArrayList<Varnode> copied = new ArrayList<Varnode>();
 		HelperFunctions.removeTrackedMemoryPositions(storage, input);
@@ -343,6 +420,19 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
+	
+	/** 
+	 * @param compound
+	 * @param storage
+	 * @param block
+	 * @param depthLevel
+	 * @param branch
+	 * 
+	 * Checks whether the called function is one of the vulnerable, input, checkchar or origin functions.
+	 * In case a match was found, the tracker's register values and memory positions are removed and the input
+	 * arguments of the matched function are inserted. (not in case of the origin function)
+	 * 
+	 */
 	protected void checkForOriginFunction(InstructionCompound compound, TrackStorage storage, Block block, int depthLevel, PcodeOp branch) {
 		if(PcodeOp.CALL == branch.getOpcode()) {
 			Function calledFunc = funcMan.getFunctionAt(branch.getInput(0).getAddress());
@@ -351,39 +441,35 @@ public class OsComInjection extends GhidraScript {
 				HelperFunctions.getFunctionParams(storage, calledFunc, context, parameterRegister, cpuArch, addrFactory, stackPointer, arg_count);
 			}
 			else if(inputFunctions.contains(calledFunc.getName()) && depthLevel < 5) {
-				removeTracked(storage);
+				HelperFunctions.removeTracked(storage);
 				int arg_count = 2;
 				HelperFunctions.getFunctionParams(storage, calledFunc, context, parameterRegister, cpuArch, addrFactory, stackPointer, arg_count);
 			}
 			else if(vulnFunctions.containsKey(calledFunc.getName()) && depthLevel < 3) {
-				removeTracked(storage);
+				HelperFunctions.removeTracked(storage);
 				HelperFunctions.getVulnFunctionParams(storage, calledFunc, context, parameterRegister, vulnFunctions, cpuArch, addrFactory, stackPointer);
 				
 			} else if(calledFunc.isThunk() && calledFunc.getParameterCount() == 0 && !calledFunc.hasNoReturn()) {
 				for(Varnode node : storage.getNodes()) {
 					if(node.isRegister() && returnRegister.getName().equals(context.getRegister(node).getName())) {
 						storage.addOriginFunc(calledFunc.getName());
-						removeTracked(storage);
+						HelperFunctions.removeTracked(storage);
 						break;
 					}
 				}
 			}
 		}
 	}
-
-
-	protected void removeTracked(TrackStorage storage) {
-		ArrayList<Varnode> registers = new ArrayList<Varnode>();
-		for(Varnode node: storage.getNodes()) {
-			if(!node.isRegister()) {
-				registers.add(node);
-			}
-		}
-		storage.setNodes(registers);
-		storage.setMemPos(new ArrayList<MemPos>());
-	}
 	
 	
+	/** 
+	 * @param storage
+	 * @param op
+	 * @param frame
+	 * 
+	 * Analyses a single Pcode instruction, depending on it being a Cast, BinOp, Copy or Load
+	 * 
+	 */
 	protected void analysePcodeOperation(TrackStorage storage, PcodeOp op, StackFrame frame) {
 		
 		Varnode output = op.getOutput();
@@ -413,6 +499,17 @@ public class OsComInjection extends GhidraScript {
 	}
 	
 	
+	
+	/** 
+	 * @param storage
+	 * @param op
+	 * @param varOffsets
+	 * @param matchedOutput
+	 * 
+	 * Checks whether the Pcode instruction is either an INT_ADD or INT_SUB and if so, checks
+	 * if the input is a memory position
+	 * 
+	 */
 	protected void updateNodeAndMemoryTracker(TrackStorage storage, PcodeOp op, ArrayList<Long> varOffsets, Varnode matchedOutput) {
 		if(PcodeOp.INT_ADD == op.getOpcode() || PcodeOp.INT_SUB == op.getOpcode()) {
 			Varnode destination = op.getInput(0);
@@ -429,6 +526,16 @@ public class OsComInjection extends GhidraScript {
 	}
 
 
+	
+	/** 
+	 * @param storage
+	 * @param destination
+	 * @param source
+	 * @param matchedOutput
+	 * 
+	 * Adds memory location to tracker if not yet available
+	 * 
+	 */
 	protected void handleConstantSource(TrackStorage storage, Varnode destination, Varnode source, Varnode matchedOutput) {
 		if(!destination.toString().equals(matchedOutput.toString())) {
 			storage.removeNode(matchedOutput);
